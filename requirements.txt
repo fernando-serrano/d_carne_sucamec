@@ -1,0 +1,10 @@
+playwright==1.51.0
+python-dotenv
+openpyxl
+easyocr
+pillow
+numpy
+google-api-python-client
+google-auth
+google-auth-oauthlib
+pytest

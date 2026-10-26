@@ -1,0 +1,189 @@
+from __future__ import annotations
+
+import logging
+import multiprocessing as mp
+import shutil
+from dataclasses import dataclass, field
+from datetime import date, datetime
+from pathlib import Path
+
+from ..config import BASE_DIR, Settings
+from ..domain import (
+    Accion,
+    Estado,
+    NEGOCIOS,
+    Operacion,
+    Plan,
+    construir_plan,
+    decidir_sync,
+    hoy_lima,
+)
+from ..drive_sync.client import DriveClient
+from ..drive_sync.folders import ResolverCarpetas
+from ..drive_sync.index import cargar_arbol, construir_indice
+from ..drive_sync.sync import aplicar
+from ..notifications import enviar_resumen
+from ..reporting import escribir_reporte
+from ..sources.excel_source import expandir_negocios, leer_registros, resolver_excel
+from . import manifest
+from .worker import worker_main
+
+
+@dataclass
+class Opciones:
+    negocios: tuple[str, ...] = NEGOCIOS
+    padron: str = ""
+    bajas: str = ""
+    solo_plan: bool = False
+    aplicar: bool = False
+    depurar_duplicados: bool = False
+    omitir_vigentes: bool = False
+    reanudar: str = ""
+    max_registros: int = 0
+    dnis: list[str] = field(default_factory=list)
+    hoy: date | None = None
+
+
+def _logger(run_dir: Path) -> logging.Logger:
+    logger = logging.getLogger("coordinador")
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s | %(message)s")
+    for handler in (logging.FileHandler(run_dir / "logs" / "coordinador.log", encoding="utf-8"), logging.StreamHandler()):
+        handler.setFormatter(fmt)
+        logger.addHandler(handler)
+    return logger
+
+
+def _avisar_lectura(log: logging.Logger, origen: str, lectura) -> None:
+    for fila, valor in lectura.invalidos[:20]:
+        log.warning("%s fila %s: documento inválido '%s' (se omite)", origen, fila, valor)
+    for fila, texto in lectura.negocio_no_reconocido[:20]:
+        log.warning("%s fila %s: razón social no reconocida '%s' (se aplica a JV y SELVA)", origen, fila, texto)
+    resto = len(lectura.invalidos) + len(lectura.negocio_no_reconocido) - 40
+    if resto > 0:
+        log.warning("%s: %s avisos más omitidos del log", origen, resto)
+
+
+def _preparar_corrida(settings: Settings, reanudar: str) -> tuple[str, Path]:
+    run_id = reanudar or datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_dir = settings.runs_dir / run_id
+    if reanudar and not run_dir.exists():
+        raise FileNotFoundError(f"No existe la corrida a reanudar: {run_dir}")
+    for sub in ("logs", "manifest", "staging"):
+        (run_dir / sub).mkdir(parents=True, exist_ok=True)
+    corridas = sorted(p for p in settings.runs_dir.iterdir() if p.is_dir())
+    for vieja in corridas[: max(0, len(corridas) - settings.max_corridas)]:
+        if vieja != run_dir:
+            shutil.rmtree(vieja, ignore_errors=True)
+    return run_id, run_dir
+
+
+def _consultar(plan: Plan, opciones: Opciones, settings: Settings, run_dir: Path, log: logging.Logger) -> None:
+    hechos = manifest.terminados(run_dir / "manifest")
+    ctx = mp.get_context("spawn")
+    procesos: list = []
+    with ctx.Manager() as manager:
+        for negocio in opciones.negocios:
+            pendientes = [i.dni for i in plan.consultas(negocio, opciones.omitir_vigentes)
+                          if (negocio, i.dni) not in hechos]
+            limite = opciones.max_registros or settings.max_registros
+            if limite:
+                pendientes = pendientes[:limite]
+            if not pendientes:
+                log.info("[%s] Sin DNIs pendientes de consulta", negocio)
+                continue
+            cola = manager.Queue()
+            for dni in pendientes:
+                cola.put(dni)
+            n = min(settings.workers(negocio), len(pendientes))
+            log.info("[%s] %s DNIs a consultar con %s worker(s)", negocio, len(pendientes), n)
+            for i in range(1, n + 1):
+                p = ctx.Process(target=worker_main, args=(negocio, i, cola, str(run_dir)), name=f"{negocio}-{i}")
+                p.start()
+                procesos.append(p)
+        for p in procesos:
+            p.join()
+            if p.exitcode:
+                log.warning("Worker %s terminó con código %s", p.name, p.exitcode)
+
+
+def ejecutar(settings: Settings, opciones: Opciones) -> int:
+    run_id, run_dir = _preparar_corrida(settings, opciones.reanudar)
+    log = _logger(run_dir)
+    hoy = opciones.hoy or hoy_lima()
+    log.info("Corrida %s | negocios=%s | aplicar=%s | solo_plan=%s", run_id, ",".join(opciones.negocios),
+             opciones.aplicar, opciones.solo_plan)
+
+    # 1. Entradas
+    entrada = BASE_DIR / "data" / "entrada"
+    ruta_padron = resolver_excel(opciones.padron or settings.padron_excel, entrada, "PADRON")
+    ruta_bajas = resolver_excel(opciones.bajas or settings.bajas_excel, entrada, "BAJAS")
+    padron: list[tuple[str, str]] = [(d, n) for d in opciones.dnis for n in opciones.negocios]
+    if ruta_padron and not opciones.dnis:
+        lectura = leer_registros(ruta_padron)
+        padron = expandir_negocios(lectura.registros)
+        log.info("Padrón %s: %s registros, %s inválidos, %s sin negocio", ruta_padron.name,
+                 len(lectura.registros), len(lectura.invalidos), lectura.sin_negocio)
+        _avisar_lectura(log, "Padrón", lectura)
+    bajas = []
+    if ruta_bajas:
+        lectura_bajas = leer_registros(ruta_bajas)
+        bajas = lectura_bajas.registros
+        _avisar_lectura(log, "Bajas", lectura_bajas)
+    log.info("Bajas/renuncias: %s (%s)", len(bajas), ruta_bajas.name if ruta_bajas else "sin archivo")
+    padron = [(d, n) for d, n in padron if n in opciones.negocios]
+    if not padron and not bajas:
+        log.error("Sin padrón ni bajas: coloque los Excel en %s o use --padron/--bajas/--dni", entrada)
+        return 2
+
+    # 2. Índice de Drive y plan
+    client = DriveClient(settings.drive_sa_key, settings.drive_oauth_token, log)
+    log.info("Drive: credencial %s", client.modo)
+    if opciones.aplicar:
+        motivo = client.verificar_escritura(settings.drive_root_id)
+        if motivo:
+            log.error("No se puede aplicar en Drive: %s. Corra sin --aplicar o autorice con autorizar_drive.py", motivo)
+            return 3
+    # El listado se congela por corrida: al reanudar se decide sobre el mismo Drive que se planificó.
+    arbol, pdfs = cargar_arbol(client, settings.drive_root_id, cache=run_dir / "drive_listado.json")
+    indice = construir_indice(arbol, pdfs, settings.drive_carpeta_vencidos)
+    log.info("Drive: %s PDFs activos indexados (%s DNIs), %s no reconocidos", indice.total(),
+             len(indice.activos), len(indice.ignorados))
+    plan = construir_plan(padron, bajas, indice, hoy)
+    log.info("Plan: %s", plan.resumen())
+
+    # 3. Consulta SUCAMEC
+    if not opciones.solo_plan and plan.consultas():
+        _consultar(plan, opciones, settings, run_dir, log)
+    resultados = manifest.leer(run_dir / "manifest")
+
+    # 4. Decisiones y sincronización
+    operaciones: list[Operacion] = []
+    for item in plan.items:
+        if item.consultar:
+            operaciones += decidir_sync(item, resultados.get((item.negocio, item.dni)), hoy)
+    operaciones += [Operacion(Accion.ELIMINAR, c.negocio, c.dni, c.fecha_emision, "baja/renuncia", file_id=c.file_id)
+                    for c in plan.eliminar]
+    if opciones.depurar_duplicados:
+        operaciones += [Operacion(Accion.MOVER_A_VENCIDOS, c.negocio, c.dni, c.fecha_emision,
+                                  "duplicado anterior", file_id=c.file_id)
+                        for c in plan.duplicados if c.fecha_emision]
+    resolver = ResolverCarpetas(arbol, client, settings.drive_carpeta_vencidos, crear=opciones.aplicar)
+    sync = aplicar(operaciones, client, resolver, opciones.aplicar, log, registro=run_dir / "drive_hechas.txt")
+
+    # 5. Reporte y correo
+    reporte = escribir_reporte(run_dir / f"RB_GADSOCarnetSUCAMEC_{run_id}.xlsx", plan, resultados, sync, indice.ignorados)
+    resumen: dict[str, int] = {}
+    for s in sync:
+        clave = f"{s.operacion.accion.value} {s.estado}"
+        resumen[clave] = resumen.get(clave, 0) + 1
+    for r in resultados.values():
+        clave = f"Consulta {r.estado.value}"
+        resumen[clave] = resumen.get(clave, 0) + 1
+    log.info("Resumen: %s", resumen)
+    log.info("Reporte: %s", reporte)
+    enviar_resumen(run_id, resumen, reporte, not opciones.aplicar, log)
+
+    errores = sum(1 for r in resultados.values() if r.estado is Estado.ERROR) + sum(1 for s in sync if s.estado == "ERROR")
+    return 1 if errores else 0

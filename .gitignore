@@ -1,0 +1,15 @@
+.env
+secrets/
+.venv/
+__pycache__/
+corridas/
+logs/
+data/entrada/*.xlsx
+.pytest_cache/
+*.log
+*.out
+renombrado/
+data/entrada/*
+!data/entrada/.gitkeep
+# script puntual con DNIs reales (corrección del 2026-10-21)
+corregir_revisar.py
