@@ -83,6 +83,7 @@ def _consultar(plan: Plan, opciones: Opciones, settings: Settings, run_dir: Path
     hechos = manifest.terminados(run_dir / "manifest")
     ctx = mp.get_context("spawn")
     procesos: list = []
+    colas: list = []  # mantiene vivo cada proxy: si se libera, el Manager borra la cola antes de que la usen los hijos
     with ctx.Manager() as manager:
         for negocio in opciones.negocios:
             pendientes = [i.dni for i in plan.consultas(negocio, opciones.omitir_vigentes)
@@ -94,6 +95,7 @@ def _consultar(plan: Plan, opciones: Opciones, settings: Settings, run_dir: Path
                 log.info("[%s] Sin DNIs pendientes de consulta", negocio)
                 continue
             cola = manager.Queue()
+            colas.append(cola)
             for dni in pendientes:
                 cola.put(dni)
             n = min(settings.workers(negocio), len(pendientes))

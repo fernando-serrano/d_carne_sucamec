@@ -71,7 +71,6 @@ def worker_main(negocio: str, indice: int, cola, run_dir_txt: str) -> int:
                 browser, context, page = open_browser(pw, settings)
                 login(page, settings, credenciales, negocio, log)
                 navigate_to_bandeja_impresion(page, log)
-                sesiones_fallidas = 0
 
                 while True:
                     if pendiente is None:
@@ -101,6 +100,7 @@ def worker_main(negocio: str, indice: int, cola, run_dir_txt: str) -> int:
                         continue
                     manifest.escribir(ruta_manifest, resultado, nombre)
                     procesados += 1
+                    sesiones_fallidas = 0  # solo una sesión que realmente procesa un DNI cuenta como sana
                     log.info("[%s] %s %s", pendiente, resultado.estado.value,
                              resultado.fecha_emision.isoformat() if resultado.fecha_emision else "")
                     pendiente = None
