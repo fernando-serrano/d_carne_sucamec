@@ -29,6 +29,7 @@ run_carnet.bat --solo-login                 :: prueba login + bandeja (JV y SELV
 run_carnet.bat --solo-plan                  :: índice de Drive + plan, sin SUCAMEC
 run_carnet.bat                              :: corrida completa en SIMULACIÓN (no escribe en Drive)
 run_carnet.bat --aplicar                    :: corrida completa aplicando cambios en Drive
+run_carnet_aplicar.bat                      :: lo mismo, para el usuario final (doble clic; deja la ventana abierta al terminar)
 run_carnet.bat --grupo JV --dni 12345678    :: solo esos DNIs
 run_carnet.bat --reanudar 20261021_134001   :: retoma una corrida cortada
 ```
