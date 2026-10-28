@@ -10,8 +10,12 @@ Credenciales:
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import logging
+import threading
+import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -57,32 +61,78 @@ def _es_falta_de_permiso(exc: HttpError) -> bool:
     )
 
 
+# Límites de ritmo de Apps Script/Drive: la operación NO se hizo, se puede reintentar sin duplicar.
+MARCAS_LIMITE = ("too many times", "ratemax", "drivewritevolume", "rate limit", "demasiadas veces",
+                 "simultaneous invocations", "invocaciones simultáneas")
+# Corte de red: NO se sabe si la operación se hizo (p. ej. la subida quedó en Drive pero la respuesta se perdió).
+ERRORES_RED = (urllib.error.URLError, ConnectionError, http.client.HTTPException, TimeoutError)
+
+
 class PuenteAppsScript:
     """Subir y eliminar como el dueño, vía la aplicación web de apps_script/Code.gs."""
 
-    def __init__(self, url: str, clave: str):
-        self.url, self.clave = url, clave
+    def __init__(self, url: str, clave: str, reintentos: int = 5):
+        self.url, self.clave, self.reintentos = url, clave, reintentos
+        self.reintentos_por_limite = 0  # métricas para la prueba de carga
+        self.reintentos_por_red = 0
 
-    def llamar(self, accion: str, **datos) -> dict:
-        cuerpo = json.dumps({"clave": self.clave, "accion": accion, **datos}).encode()
+    def _enviar(self, cuerpo: bytes) -> dict:
         req = urllib.request.Request(self.url, data=cuerpo, headers={"Content-Type": "application/json"}, method="POST")
         # Apps Script responde con un 302 a googleusercontent.com; urllib lo sigue como GET.
         with urllib.request.urlopen(req, timeout=120) as resp:
-            out = json.loads(resp.read().decode() or "{}")
-        if not out.get("ok"):
-            raise SinPermisoDrive(f"Apps Script ({accion}): {out.get('error', 'respuesta inválida')}")
-        return out
+            texto = resp.read().decode()
+        try:
+            return json.loads(texto or "{}")
+        except json.JSONDecodeError:  # página HTML de error (p. ej. límite de ejecuciones simultáneas)
+            return {"ok": False, "error": texto[:300]}
+
+    def llamar(self, accion: str, idempotente: bool = False, **datos) -> dict:
+        """`idempotente`: repetirla no cambia el resultado (papelera, ping), así que se reintenta ante cortes de red."""
+        cuerpo = json.dumps({"clave": self.clave, "accion": accion, **datos}).encode()
+        for intento in range(1, self.reintentos + 1):
+            try:
+                out = self._enviar(cuerpo)
+            except urllib.error.HTTPError as exc:
+                if exc.code != 429:
+                    if not (idempotente and exc.code >= 500 and intento < self.reintentos):
+                        raise
+                    self.reintentos_por_red += 1
+                    time.sleep(2 ** intento)
+                    continue
+                out = {"ok": False, "error": f"HTTP 429 rate limit {exc.reason}"}
+            except ERRORES_RED:
+                if not idempotente or intento == self.reintentos:
+                    raise
+                self.reintentos_por_red += 1
+                time.sleep(2 ** intento)
+                continue
+            if out.get("ok"):
+                return out
+            error = str(out.get("error", "respuesta inválida"))
+            if intento < self.reintentos and any(m in error.lower() for m in MARCAS_LIMITE):
+                self.reintentos_por_limite += 1
+                time.sleep(2 ** intento)  # 2, 4, 8, 16 s
+                continue
+            raise SinPermisoDrive(f"Apps Script ({accion}): {error}")
+        raise AssertionError("inalcanzable")
 
 
 class DriveClient:
     def __init__(self, sa_key: Path, oauth_token: Path, logger: logging.Logger):
-        creds, self.modo = _credenciales(sa_key, oauth_token)
-        self.svc = build("drive", "v3", credentials=creds, cache_discovery=False)
+        self._creds, self.modo = _credenciales(sa_key, oauth_token)
+        self._local = threading.local()
         self.logger = logger
         url, clave = str_env("CARNET_APPS_SCRIPT_URL"), str_env("CARNET_APPS_SCRIPT_CLAVE")
         self.puente = PuenteAppsScript(url, clave) if url and clave else None
         if self.puente:
             self.modo += "+apps_script"
+
+    @property
+    def svc(self):
+        # httplib2 no es seguro entre hilos: un servicio por hilo (la sincronización sube en paralelo).
+        if not hasattr(self._local, "svc"):
+            self._local.svc = build("drive", "v3", credentials=self._creds, cache_discovery=False)
+        return self._local.svc
 
     def verificar_escritura(self, root_id: str) -> str | None:
         """None si se puede subir y eliminar en la raíz como su dueño; si no, el motivo."""
@@ -90,7 +140,7 @@ class DriveClient:
         duenos = [o["emailAddress"] for o in raiz.get("owners", [])]
         if self.puente:
             try:
-                yo = self.puente.llamar("ping")["usuario"]
+                yo = self.puente.llamar("ping", idempotente=True)["usuario"]
             except Exception as exc:
                 return f"Apps Script no responde: {exc}"
         elif self.modo == "oauth":
@@ -127,13 +177,34 @@ class DriveClient:
                 raise SinPermisoDrive(f"crear carpeta '{nombre}': {exc.reason}") from exc
             raise
 
+    ESPERA_VERIFICACION_S = 10  # Apps Script puede seguir creando el archivo tras cortarse la conexión
+
+    def _buscar_en_carpeta(self, nombre: str, parent_id: str) -> str | None:
+        resp = self.svc.files().list(
+            q=f"name = '{nombre}' and '{parent_id}' in parents and trashed = false", fields="files(id)",
+            supportsAllDrives=True, includeItemsFromAllDrives=True,
+        ).execute(num_retries=6)
+        return resp["files"][0]["id"] if resp["files"] else None
+
     def subir_pdf(self, ruta: Path, nombre: str, parent_id: str, props: dict[str, str]) -> str:
         if self.puente:
-            return self.puente.llamar(
-                "subir", carpeta_id=parent_id, nombre=nombre,
-                contenido_b64=base64.b64encode(ruta.read_bytes()).decode(),
-                descripcion=json.dumps(props, ensure_ascii=False),
-            )["id"]
+            contenido = base64.b64encode(ruta.read_bytes()).decode()
+            for intento in range(1, 4):
+                try:
+                    return self.puente.llamar(
+                        "subir", carpeta_id=parent_id, nombre=nombre, contenido_b64=contenido,
+                        descripcion=json.dumps(props, ensure_ascii=False),
+                    )["id"]
+                except ERRORES_RED as exc:
+                    # Subir no es idempotente: antes de reintentar se verifica que no haya quedado (sin duplicar).
+                    time.sleep(self.ESPERA_VERIFICACION_S)
+                    existente = self._buscar_en_carpeta(nombre, parent_id)
+                    if existente:
+                        self.logger.warning("subir '%s': %s, pero el archivo sí quedó en Drive", nombre, exc)
+                        return existente
+                    if intento == 3:
+                        raise
+                    self.logger.warning("subir '%s': %s; no quedó en Drive, reintento %s/2", nombre, exc, intento)
         body = {"name": nombre, "parents": [parent_id], "appProperties": props}
         media = MediaFileUpload(str(ruta), mimetype=PDF, resumable=False)
         try:
@@ -159,18 +230,18 @@ class DriveClient:
         """Papelera para una carpeta vacía (requiere la acción 'eliminar_carpeta' del Apps Script)."""
         if not self.puente:
             raise SinPermisoDrive("eliminar carpetas requiere el Apps Script")
-        self.puente.llamar("eliminar_carpeta", carpeta_id=carpeta_id)
+        self.puente.llamar("eliminar_carpeta", idempotente=True, carpeta_id=carpeta_id)
 
     def restaurar(self, file_id: str) -> None:
         """Saca de la papelera (requiere la acción 'restaurar' del Apps Script)."""
         if not self.puente:
             raise SinPermisoDrive("restaurar desde la papelera requiere el Apps Script")
-        self.puente.llamar("restaurar", file_id=file_id)
+        self.puente.llamar("restaurar", idempotente=True, file_id=file_id)
 
     def eliminar(self, file_id: str) -> None:
         """Envía a la papelera (recuperable 30 días); solo el dueño puede."""
         if self.puente:
-            self.puente.llamar("eliminar", file_id=file_id)
+            self.puente.llamar("eliminar", idempotente=True, file_id=file_id)
             return
         try:
             self.svc.files().update(fileId=file_id, body={"trashed": True}, supportsAllDrives=True).execute(num_retries=6)

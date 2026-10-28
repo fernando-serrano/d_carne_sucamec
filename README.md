@@ -15,6 +15,8 @@ python -m venv .venv
 
 `.env` (no versionado): credenciales SUCAMEC `TIPO_DOC`, `NUMERO_DOCUMENTO`, `USUARIO_SEL`,
 `CLAVE_SEL` y sus equivalentes `SELVA_*`; Graph `MS_GRAPH_*`; la carpeta raíz `CARNET_DRIVE_ROOT_ID` (también como propiedad `ROOT_ID` del Apps Script); y opcionalmente `CARNET_*` (ver `src/carnet_flow/config.py`).
+`CARNET_DRIVE_HILOS` (por defecto 8): subidas simultáneas a Drive. Medido el 27/10/2026: 8 hilos sostienen
+~1,5 subidas/s sin errores; con 16 aparecen cortes de conexión de la red local (no límites de Google).
 `secrets/`: llave de la cuenta de servicio y, para escribir en Drive, `drive_oauth_token.json` (ver `autorizar_drive.py`).
 
 ## Entradas

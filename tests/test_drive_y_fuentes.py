@@ -150,6 +150,105 @@ def test_reanudar_no_repite_operaciones_hechas(tmp_path: Path):
     assert [r.estado for r in res] == ["HECHO", "HECHO", "HECHO", "OMITIDO"]
 
 
+def test_sync_en_paralelo_conserva_orden_registro_y_carpetas_unicas(tmp_path: Path):
+    arbol, _ = _arbol(ESTRUCTURA)
+    registro = tmp_path / "drive_hechas.txt"
+    ops = [Operacion(Accion.SUBIR, "JV", f"7{i:07d}", date(2026, 11, 1 + i % 3), "nuevo", pdf="x.pdf")
+           for i in range(30)] + _ops()
+    drive = DriveFalso()
+    res = aplicar(ops, drive, ResolverCarpetas(arbol, drive, "VENCIDOS", crear=True), True, LOG, registro, hilos=8)
+    assert [r.operacion for r in res] == ops
+    assert [r.estado for r in res] == ["HECHO"] * 33 + ["OMITIDO"]
+    assert len(registro.read_text(encoding="utf-8").splitlines()) == 33
+    arbol_sec, _ = _arbol(ESTRUCTURA)
+    secuencial = DriveFalso()
+    aplicar(ops, secuencial, ResolverCarpetas(arbol_sec, secuencial, "VENCIDOS", crear=True), True, LOG)
+    # mismas carpetas creadas, en el mismo orden: la concurrencia no las duplica
+    assert [c for c in drive.llamadas if c[0] == "carpeta"] == [c for c in secuencial.llamadas if c[0] == "carpeta"]
+
+
+def test_puente_reintenta_solo_limites_de_ritmo(monkeypatch):
+    from carnet_flow.drive_sync import client as mod
+
+    monkeypatch.setattr(mod.time, "sleep", lambda s: None)
+    puente = mod.PuenteAppsScript("u", "c")
+    respuestas = iter([{"ok": False, "error": "Service invoked too many times in a short time: driveWriteVolume rateMax"},
+                       {"ok": True, "id": "X"}])
+    monkeypatch.setattr(puente, "_enviar", lambda cuerpo: next(respuestas))
+    assert puente.llamar("subir")["id"] == "X"
+    assert puente.reintentos_por_limite == 1
+
+    monkeypatch.setattr(puente, "_enviar", lambda cuerpo: {"ok": False, "error": "carpeta fuera de la raíz"})
+    with pytest.raises(SinPermisoDrive):
+        puente.llamar("subir")
+    assert puente.reintentos_por_limite == 1
+
+
+class PuenteCortado:
+    """Corta la conexión en las primeras `cortes` llamadas; `quedo` indica si Drive igual creó el archivo."""
+
+    def __init__(self, cortes, quedo):
+        self.cortes, self.quedo, self.llamadas = cortes, quedo, 0
+
+    def llamar(self, accion, **datos):
+        self.llamadas += 1
+        if self.llamadas <= self.cortes:
+            raise ConnectionResetError(10054, "conexión cortada por el host remoto")
+        return {"ok": True, "id": "NUEVO"}
+
+
+def _cliente_con(puente, existente, monkeypatch, tmp_path):
+    from carnet_flow.drive_sync import client as mod
+
+    monkeypatch.setattr(mod.time, "sleep", lambda s: None)
+    c = object.__new__(mod.DriveClient)
+    c.puente, c.logger = puente, LOG
+    c._buscar_en_carpeta = lambda nombre, parent: existente
+    pdf = tmp_path / "x.pdf"
+    pdf.write_bytes(b"%PDF")
+    return c, pdf
+
+
+def test_subida_cortada_que_si_quedo_no_se_duplica(monkeypatch, tmp_path):
+    puente = PuenteCortado(cortes=1, quedo=True)
+    c, pdf = _cliente_con(puente, "YA_EXISTE", monkeypatch, tmp_path)
+    assert c.subir_pdf(pdf, "47514202_21.10.2026.pdf", "P", {}) == "YA_EXISTE"
+    assert puente.llamadas == 1  # no se volvió a subir
+
+
+def test_subida_cortada_que_no_quedo_se_reintenta(monkeypatch, tmp_path):
+    puente = PuenteCortado(cortes=1, quedo=False)
+    c, pdf = _cliente_con(puente, None, monkeypatch, tmp_path)
+    assert c.subir_pdf(pdf, "n.pdf", "P", {}) == "NUEVO"
+    assert puente.llamadas == 2
+
+    puente = PuenteCortado(cortes=9, quedo=False)
+    c, pdf = _cliente_con(puente, None, monkeypatch, tmp_path)
+    with pytest.raises(ConnectionResetError):
+        c.subir_pdf(pdf, "n.pdf", "P", {})
+    assert puente.llamadas == 3
+
+
+def test_puente_reintenta_cortes_de_red_solo_si_es_idempotente(monkeypatch):
+    from carnet_flow.drive_sync import client as mod
+
+    monkeypatch.setattr(mod.time, "sleep", lambda s: None)
+    puente = mod.PuenteAppsScript("u", "c")
+    respuestas = iter([ConnectionResetError(10054, "corte"), {"ok": True}])
+
+    def enviar(cuerpo):
+        r = next(respuestas)
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+    monkeypatch.setattr(puente, "_enviar", enviar)
+    assert puente.llamar("eliminar", idempotente=True, file_id="F") == {"ok": True}
+    monkeypatch.setattr(puente, "_enviar", lambda cuerpo: (_ for _ in ()).throw(ConnectionResetError(10054, "corte")))
+    with pytest.raises(ConnectionResetError):
+        puente.llamar("subir")
+
+
 def test_cache_del_listado(tmp_path: Path):
     from carnet_flow.drive_sync.index import cargar_arbol
 

@@ -63,6 +63,7 @@ class Settings:
     drive_sa_key: Path
     drive_oauth_token: Path
     drive_carpeta_vencidos: str
+    drive_hilos: int
     logs_dir: Path
     runs_dir: Path
     max_corridas: int
@@ -92,6 +93,7 @@ def load_settings() -> Settings:
         drive_sa_key=BASE_DIR / str_env("CARNET_DRIVE_SA_KEY", "secrets/bots-sucamec-419d9f901d1e.json"),
         drive_oauth_token=BASE_DIR / str_env("CARNET_DRIVE_OAUTH_TOKEN", "secrets/drive_oauth_token.json"),
         drive_carpeta_vencidos=str_env("CARNET_DRIVE_CARPETA_VENCIDOS", "VENCIDOS"),
+        drive_hilos=max(1, int_env("CARNET_DRIVE_HILOS", 8)),
         logs_dir=BASE_DIR / "logs",
         runs_dir=BASE_DIR / "corridas",
         max_corridas=max(1, int_env("CARNET_MAX_CORRIDAS", 15)),

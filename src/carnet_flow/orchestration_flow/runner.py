@@ -172,7 +172,8 @@ def ejecutar(settings: Settings, opciones: Opciones) -> int:
                                   "duplicado anterior", file_id=c.file_id)
                         for c in plan.duplicados if c.fecha_emision]
     resolver = ResolverCarpetas(arbol, client, settings.drive_carpeta_vencidos, crear=opciones.aplicar)
-    sync = aplicar(operaciones, client, resolver, opciones.aplicar, log, registro=run_dir / "drive_hechas.txt")
+    sync = aplicar(operaciones, client, resolver, opciones.aplicar, log, registro=run_dir / "drive_hechas.txt",
+                   hilos=settings.drive_hilos)
 
     # 5. Reporte y correo
     reporte = escribir_reporte(run_dir / f"RB_GADSOCarnetSUCAMEC_{run_id}.xlsx", plan, resultados, sync, indice.ignorados)
