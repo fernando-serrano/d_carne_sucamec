@@ -1,8 +1,8 @@
 """Saneamiento de "CARNÉS ELECTRONICO" guiado por el contenido de cada PDF.
 
-  .venv\\Scripts\\python.exe sanear_drive.py              # SIMULACIÓN: descarga y valida, Excel con el plan
-  .venv\\Scripts\\python.exe sanear_drive.py --aplicar    # mueve/renombra, copias idénticas a la papelera
-  .venv\\Scripts\\python.exe sanear_drive.py --revertir   # deshace movimientos y nombres
+  .venv\\Scripts\\python.exe scripts\\sanear_drive.py              # SIMULACIÓN: descarga y valida, Excel con el plan
+  .venv\\Scripts\\python.exe scripts\\sanear_drive.py --aplicar    # mueve/renombra, copias idénticas a la papelera
+  .venv\\Scripts\\python.exe scripts\\sanear_drive.py --revertir   # deshace movimientos y nombres
 
 Alcance: carpetas de día duplicadas, PDFs sueltos en carpetas de mes, carpetas sin fecha válida
 y PDFs con nombre repetido en su carpeta. Detalle de reglas en src/carnet_flow/drive_sync/saneamiento.py.
@@ -22,7 +22,7 @@ from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from googleapiclient.discovery import build  # noqa: E402
 from googleapiclient.http import MediaIoBaseDownload  # noqa: E402

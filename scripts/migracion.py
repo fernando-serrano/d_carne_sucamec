@@ -1,12 +1,12 @@
 """Bitácora y punto de restauración de la migración del Drive "CARNÉS ELECTRONICO".
 
-  .venv\\Scripts\\python.exe migracion.py estado                        # cambios por paso y avance
-  .venv\\Scripts\\python.exe migracion.py restaurar --hasta 3           # SIMULACIÓN: qué se desharía
-  .venv\\Scripts\\python.exe migracion.py restaurar --hasta 3 --aplicar # deshace los pasos 6, 5 y 4
+  .venv\\Scripts\\python.exe scripts\\migracion.py estado                        # cambios por paso y avance
+  .venv\\Scripts\\python.exe scripts\\migracion.py restaurar --hasta 3           # SIMULACIÓN: qué se desharía
+  .venv\\Scripts\\python.exe scripts\\migracion.py restaurar --hasta 3 --aplicar # deshace los pasos 6, 5 y 4
 
 `--hasta N` deja el Drive como quedó al terminar el paso N (0 = estado original).
 Sacar de la papelera requiere la acción 'restaurar' del Apps Script (apps_script/Code.gs).
-Todo queda en logs_migracion.log; la restauración se registra en renombrado/restauracion_<N>.jsonl
+Todo queda en logs/migracion.log; la restauración se registra en renombrado/restauracion_<N>.jsonl
 y se puede retomar si se corta.
 """
 
@@ -18,7 +18,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from carnet_flow.config import BASE_DIR, load_settings  # noqa: E402
 from carnet_flow.drive_sync.client import DriveClient  # noqa: E402
@@ -33,7 +33,7 @@ r.add_argument("--aplicar", action="store_true")
 args = p.parse_args()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s | %(message)s",
-                    handlers=[logging.StreamHandler(), logging.FileHandler(BASE_DIR / "logs_migracion.log", encoding="utf-8")])
+                    handlers=[logging.StreamHandler(), logging.FileHandler(BASE_DIR / "logs" / "migracion.log", encoding="utf-8")])
 log = logging.getLogger("migracion")
 logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.ERROR)
 carpeta = BASE_DIR / "renombrado"
@@ -52,8 +52,8 @@ if args.cmd == "estado":
         tipos = Counter(e.get("tipo") or e.get("accion") or "cambio" for e in entradas)
         log.info("Paso %s | %-62s | %6s cambios %s", paso.numero, paso.descripcion, len(entradas),
                  dict(tipos) if len(tipos) > 1 else "")
-    avance = _ultima(BASE_DIR / "logs_vencidos.log", "Movidos") or "sin iniciar"
-    fin = _ultima(BASE_DIR / "logs_vencidos.log", "Fin:")
+    avance = _ultima(BASE_DIR / "logs" / "vencidos.log", "Movidos") or "sin iniciar"
+    fin = _ultima(BASE_DIR / "logs" / "vencidos.log", "Fin:")
     log.info("VENCIDOS: %s", fin or f"EN CURSO -> {avance}")
     sys.exit(0)
 

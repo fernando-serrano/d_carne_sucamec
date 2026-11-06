@@ -1,8 +1,8 @@
 """Mueve a VENCIDOS/<negocio>/<año>/<mes>/<día> los carnés no vigentes que ya estaban en Drive.
 
-  .venv\\Scripts\\python.exe segmentar_vencidos.py              # SIMULACIÓN: Excel con el plan, no toca Drive
-  .venv\\Scripts\\python.exe segmentar_vencidos.py --aplicar    # mueve (retoma si se corta)
-  .venv\\Scripts\\python.exe segmentar_vencidos.py --revertir   # devuelve cada PDF a su carpeta anterior
+  .venv\\Scripts\\python.exe scripts\\segmentar_vencidos.py              # SIMULACIÓN: Excel con el plan, no toca Drive
+  .venv\\Scripts\\python.exe scripts\\segmentar_vencidos.py --aplicar    # mueve (retoma si se corta)
+  .venv\\Scripts\\python.exe scripts\\segmentar_vencidos.py --revertir   # devuelve cada PDF a su carpeta anterior
 
 Regla (drive_sync/vencidos.py): por negocio y DNI solo queda activo el carné más reciente
 con menos de 3 años; los renovados y los vencidos sin renovación van a VENCIDOS.
@@ -18,7 +18,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from openpyxl import Workbook  # noqa: E402
 from openpyxl.styles import Font  # noqa: E402
@@ -36,7 +36,7 @@ p.add_argument("--revertir", action="store_true")
 args = p.parse_args()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s | %(message)s",
-                    handlers=[logging.StreamHandler(), logging.FileHandler(BASE_DIR / "logs_vencidos.log", encoding="utf-8")])
+                    handlers=[logging.StreamHandler(), logging.FileHandler(BASE_DIR / "logs" / "vencidos.log", encoding="utf-8")])
 log = logging.getLogger("vencidos")
 s = load_settings()
 salida = BASE_DIR / "renombrado"

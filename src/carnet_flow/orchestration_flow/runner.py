@@ -258,7 +258,7 @@ def ejecutar(settings: Settings, opciones: Opciones) -> int:
     if opciones.aplicar:
         motivo = client.verificar_escritura(settings.drive_root_id)
         if motivo:
-            log.error("No se puede aplicar en Drive: %s. Corra sin --aplicar o autorice con autorizar_drive.py", motivo)
+            log.error("No se puede aplicar en Drive: %s. Corra sin --aplicar o autorice con scripts/autorizar_drive.py", motivo)
             return 3
     # El listado se congela por corrida: al reanudar se decide sobre el mismo Drive que se planificó.
     arbol, pdfs = cargar_arbol(client, settings.drive_root_id, cache=run_dir / "drive_listado.json")

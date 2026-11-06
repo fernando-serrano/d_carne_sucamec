@@ -1,8 +1,8 @@
 """Renombra los PDFs de "CARNÉS ELECTRONICO" a <DNI>_<dd.mm.aaaa>.pdf.
 
-  .venv\\Scripts\\python.exe renombrar_drive.py                 # SIMULACIÓN: Excel con el plan, no toca Drive
-  .venv\\Scripts\\python.exe renombrar_drive.py --aplicar       # renombra (retoma si se corta)
-  .venv\\Scripts\\python.exe renombrar_drive.py --revertir      # vuelve a los nombres anteriores
+  .venv\\Scripts\\python.exe scripts\\renombrar_drive.py                 # SIMULACIÓN: Excel con el plan, no toca Drive
+  .venv\\Scripts\\python.exe scripts\\renombrar_drive.py --aplicar       # renombra (retoma si se corta)
+  .venv\\Scripts\\python.exe scripts\\renombrar_drive.py --revertir      # vuelve a los nombres anteriores
 
 Usa la cuenta de servicio (renombrar no requiere ser dueño ni ocupa cuota).
 Salida en renombrado/: plan_renombrado.xlsx, listado_drive.json y renombrados.jsonl (checkpoint / reversión).
@@ -14,7 +14,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from openpyxl import Workbook  # noqa: E402
 from openpyxl.styles import Font  # noqa: E402
@@ -33,7 +33,7 @@ p.add_argument("--carpetas", action="store_true",
 args = p.parse_args()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s | %(message)s",
-                    handlers=[logging.StreamHandler(), logging.FileHandler(BASE_DIR / "logs_renombrado.log", encoding="utf-8")])
+                    handlers=[logging.StreamHandler(), logging.FileHandler(BASE_DIR / "logs" / "renombrado.log", encoding="utf-8")])
 log = logging.getLogger("renombrado")
 s = load_settings()
 salida = BASE_DIR / "renombrado"

@@ -6,7 +6,7 @@ el dueño. Requisitos:
   1. En el proyecto GCP de la cuenta de servicio: habilitar Drive API y crear un
      "ID de cliente OAuth" de tipo "App de escritorio"; descargar el JSON como
      secrets/oauth_client.json
-  2. Ejecutar:  .venv\\Scripts\\python.exe autorizar_drive.py
+  2. Ejecutar:  .venv\\Scripts\\python.exe scripts\\autorizar_drive.py
      e iniciar sesión con la cuenta DUEÑA de "CARNÉS ELECTRONICO".
 Resultado: secrets/drive_oauth_token.json (el bot lo usa automáticamente).
 """
@@ -15,7 +15,7 @@ from pathlib import Path
 
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-BASE = Path(__file__).resolve().parent
+BASE = Path(__file__).resolve().parents[1]
 CLIENTE = BASE / "secrets" / "oauth_client.json"
 TOKEN = BASE / "secrets" / "drive_oauth_token.json"
 

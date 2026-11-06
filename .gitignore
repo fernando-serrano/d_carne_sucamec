@@ -12,4 +12,4 @@ renombrado/
 data/entrada/*
 !data/entrada/.gitkeep
 # script puntual con DNIs reales (corrección del 2026-10-21)
-corregir_revisar.py
+scripts/corregir_revisar.py

@@ -1,7 +1,7 @@
 """Envía a la papelera las carpetas que quedaron vacías tras sanear_drive.py --aplicar.
 
-  .venv\\Scripts\\python.exe eliminar_carpetas_vacias.py            # lista, no borra
-  .venv\\Scripts\\python.exe eliminar_carpetas_vacias.py --aplicar  # papelera (recuperable 30 días)
+  .venv\\Scripts\\python.exe scripts\\eliminar_carpetas_vacias.py            # lista, no borra
+  .venv\\Scripts\\python.exe scripts\\eliminar_carpetas_vacias.py --aplicar  # papelera (recuperable 30 días)
 
 Requiere la versión del Apps Script con la acción 'eliminar_carpeta' (apps_script/Code.gs).
 El script vuelve a comprobar que cada carpeta esté vacía antes de eliminarla.
@@ -13,7 +13,7 @@ import logging
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from carnet_flow.config import BASE_DIR, load_settings  # noqa: E402
 from carnet_flow.drive_sync.client import DriveClient  # noqa: E402
