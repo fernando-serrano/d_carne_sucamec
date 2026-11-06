@@ -22,7 +22,7 @@ from pathlib import Path
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaFileUpload
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 
 from ..config import str_env
 
@@ -167,6 +167,17 @@ class DriveClient:
     def obtener(self, file_id: str) -> Item:
         f = self.svc.files().get(fileId=file_id, fields="id,name,mimeType,parents", supportsAllDrives=True).execute(num_retries=6)
         return Item(f["id"], f["name"], f["mimeType"], tuple(f.get("parents") or ()))
+
+    def descargar(self, file_id: str) -> bytes:
+        """Contenido de un archivo (lectura: basta la cuenta de servicio)."""
+        import io
+
+        fh = io.BytesIO()
+        descarga = MediaIoBaseDownload(fh, self.svc.files().get_media(fileId=file_id, supportsAllDrives=True))
+        terminado = False
+        while not terminado:
+            _, terminado = descarga.next_chunk(num_retries=6)
+        return fh.getvalue()
 
     def crear_carpeta(self, nombre: str, parent_id: str) -> str:
         body = {"name": nombre, "mimeType": FOLDER, "parents": [parent_id]}

@@ -85,15 +85,29 @@ def negocio_de_carpeta(nombre: str) -> str | None:
 
 
 def construir_indice(arbol: Arbol, pdfs: list[Item], carpeta_vencidos: str) -> IndiceDrive:
+    """Índice activo: todo lo que NO cuelga de <raíz>/VENCIDOS."""
+    return _indexar(arbol, pdfs, carpeta_vencidos, en_vencidos=False)
+
+
+def construir_indice_vencidos(arbol: Arbol, pdfs: list[Item], carpeta_vencidos: str) -> IndiceDrive:
+    """Solo <raíz>/VENCIDOS/<negocio>/...: misma lectura de negocio, DNI y fecha."""
+    return _indexar(arbol, pdfs, carpeta_vencidos, en_vencidos=True)
+
+
+def _indexar(arbol: Arbol, pdfs: list[Item], carpeta_vencidos: str, en_vencidos: bool) -> IndiceDrive:
     indice = IndiceDrive()
     vencidos = sin_tildes(carpeta_vencidos).upper()
     for pdf in pdfs:
         partes = arbol.ruta(pdf)
         if partes is None:
             continue
-        ruta_txt = "/".join(partes)
-        if not partes or sin_tildes(partes[0]).upper() == vencidos:
+        if not partes or (sin_tildes(partes[0]).upper() == vencidos) != en_vencidos:
             continue
+        if en_vencidos:
+            partes = partes[1:]
+            if not partes:
+                continue
+        ruta_txt = "/".join(partes)
         negocio = negocio_de_carpeta(partes[0])
         m = _NOMBRE_PDF_RE.match(pdf.name)
         dni = normalizar_dni(m.group(1)) if m else None

@@ -56,6 +56,48 @@ def test_indice_desde_estructura_real():
     assert idx.ignorados == [("J&V RESGUARDO SAC/2024/01.Enero/03.01.2024", "notas.pdf")]
 
 
+def test_indice_vencidos_solo_rama_vencidos():
+    from carnet_flow.drive_sync.index import construir_indice_vencidos
+
+    arbol, pdfs = _arbol(ESTRUCTURA)
+    venc = construir_indice_vencidos(arbol, pdfs, "VENCIDOS")
+    assert list(venc.activos) == [("JV", "11111111")]
+    assert venc.vigente("JV", "11111111").fecha_emision == date(2020, 1, 2)
+    # El índice activo no cambia.
+    assert ("JV", "11111111") not in construir_indice(arbol, pdfs, "VENCIDOS").activos
+
+
+def test_descargar_devuelve_bytes(monkeypatch):
+    from carnet_flow.drive_sync import client as mod
+
+    class _Req:
+        pass
+
+    class _Files:
+        def get_media(self, fileId, supportsAllDrives=True):
+            assert fileId == "f1"
+            return _Req()
+
+    class _Svc:
+        def files(self):
+            return _Files()
+
+    class _Descarga:
+        def __init__(self, fh, req):
+            self.fh = fh
+
+        def next_chunk(self, num_retries=0):
+            self.fh.write(b"%PDF-1.4")
+            return None, True
+
+    monkeypatch.setattr(mod, "MediaIoBaseDownload", _Descarga)
+    cli = object.__new__(mod.DriveClient)
+    import threading
+    cli._local = threading.local()
+    cli._local.svc = _Svc()
+    assert cli.descargar("f1") == b"%PDF-1.4"
+
+
 def test_resolver_reutiliza_carpetas_irregulares_y_crea_las_que_faltan():
     arbol, _ = _arbol(ESTRUCTURA)
     r = ResolverCarpetas(arbol, None, "VENCIDOS", crear=False)
