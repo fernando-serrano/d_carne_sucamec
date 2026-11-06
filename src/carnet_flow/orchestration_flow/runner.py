@@ -26,7 +26,7 @@ from ..drive_sync.index import cargar_arbol, construir_indice, construir_indice_
 from ..drive_sync.sync import aplicar
 from ..minio_sync.reconciliar import aplicar_reconciliacion, filtrar_por_negocio, planificar_reconciliacion
 from ..minio_sync.store import crear_almacen
-from ..notifications import enviar_resumen
+from ..notifications import columnas_corrida, enviar_resumen
 from ..reporting import escribir_reporte, escribir_reporte_minio
 from ..sources.excel_source import expandir_negocios, leer_registros, resolver_excel
 from . import manifest
@@ -216,7 +216,10 @@ def ejecutar_ceses(settings: Settings, opciones: Opciones) -> int:
                 resumen[clave] = resumen.get(clave, 0) + 1
     log.info("Resumen: %s", resumen)
     log.info("Reporte: %s", reporte)
-    enviar_resumen(run_id, resumen, reporte, not opciones.aplicar, log)
+    columnas = [("Ceses en Excel", len(ceses)), ("Sin carné en Drive", len(sin_pdf))] + [
+        c for c in columnas_corrida({}, sync) if c[0] in ("Eliminados", "Errores Drive", "Errores MinIO")]
+    enviar_resumen(run_id, "CESES DE CARNÉS", ",".join(opciones.negocios), columnas, [reporte],
+                   not opciones.aplicar, log)
     return 1 if any(s.estado == "ERROR" or s.minio == "MINIO_ERROR" for s in sync) else 0
 
 
@@ -298,7 +301,8 @@ def ejecutar(settings: Settings, opciones: Opciones) -> int:
         resumen[clave] = resumen.get(clave, 0) + 1
     log.info("Resumen: %s", resumen)
     log.info("Reporte: %s", reporte)
-    enviar_resumen(run_id, resumen, reporte, not opciones.aplicar, log)
+    enviar_resumen(run_id, "CARNÉS (BANDEJA DE IMPRESIÓN)", ",".join(opciones.negocios),
+                   columnas_corrida(resultados, sync), [reporte], not opciones.aplicar, log)
 
     errores = sum(1 for r in resultados.values() if r.estado is Estado.ERROR) + sum(1 for s in sync if s.estado == "ERROR")
     return 1 if errores else 0
