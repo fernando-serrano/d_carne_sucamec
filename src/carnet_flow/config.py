@@ -67,6 +67,19 @@ class Settings:
     logs_dir: Path
     runs_dir: Path
     max_corridas: int
+    # MinIO (espejo para GADSO). Valores por defecto = desactivado.
+    minio_enabled: bool = False
+    minio_endpoint: str = ""
+    minio_access_key: str = ""
+    minio_secret_key: str = ""
+    minio_bucket: str = "mga-gadso"
+    minio_use_ssl: bool = True
+    minio_prefix: str = "sucamec/carnets"
+    ceses_excel: str = ""
+
+    @property
+    def minio_activo(self) -> bool:
+        return bool(self.minio_enabled and self.minio_endpoint and self.minio_access_key and self.minio_secret_key)
 
     def workers(self, negocio: str) -> int:
         return self.workers_selva if negocio == "SELVA" else self.workers_jv
@@ -97,6 +110,14 @@ def load_settings() -> Settings:
         logs_dir=BASE_DIR / "logs",
         runs_dir=BASE_DIR / "corridas",
         max_corridas=max(1, int_env("CARNET_MAX_CORRIDAS", 15)),
+        minio_enabled=bool_env("MINIO_ENABLED", False),
+        minio_endpoint=str_env("MINIO_ENDPOINT"),
+        minio_access_key=str_env("MINIO_ACCESS_KEY"),
+        minio_secret_key=str_env("MINIO_SECRET_KEY"),
+        minio_bucket=str_env("MINIO_BUCKET", "mga-gadso"),
+        minio_use_ssl=bool_env("MINIO_USE_SSL", True),
+        minio_prefix=str_env("MINIO_PREFIX", "sucamec/carnets"),
+        ceses_excel=str_env("CARNET_CESES_EXCEL", ""),
     )
 
 
