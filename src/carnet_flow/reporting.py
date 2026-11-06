@@ -39,6 +39,8 @@ def escribir_reporte(
         resumen[f"consulta {r.negocio}:{r.estado.value}"] += 1
     for s in sync:
         resumen[f"drive {s.operacion.accion.value}:{s.estado}"] += 1
+        if s.minio:
+            resumen[f"minio {s.operacion.accion.value}:{s.minio}"] += 1
     _hoja(wb, "Resumen", ["Concepto", "Cantidad"], [[k, v] for k, v in sorted(resumen.items())])
     _hoja(wb, "Plan", ["Negocio", "DNI", "Motivo", "Emisión en Drive", "Ruta en Drive"], [
         [i.negocio, i.dni, i.motivo.value,
@@ -49,9 +51,10 @@ def escribir_reporte(
         [r.negocio, r.dni, r.estado.value, r.fecha_emision.strftime("%d/%m/%Y") if r.fecha_emision else "",
          r.filas, r.detalle] for r in resultados.values()
     ])
-    _hoja(wb, "Drive", ["Acción", "Estado", "Negocio", "DNI", "Emisión", "Destino", "Detalle"], [
+    _hoja(wb, "Drive", ["Acción", "Estado", "Negocio", "DNI", "Emisión", "Destino", "Detalle", "MinIO"], [
         [s.operacion.accion.value, s.estado, s.operacion.negocio, s.operacion.dni,
-         s.operacion.fecha_emision.strftime("%d/%m/%Y") if s.operacion.fecha_emision else "", s.destino, s.detalle]
+         s.operacion.fecha_emision.strftime("%d/%m/%Y") if s.operacion.fecha_emision else "", s.destino, s.detalle,
+         s.minio]
         for s in sync
     ])
     _hoja(wb, "Duplicados en Drive", ["Negocio", "DNI", "Emisión", "Ruta"], [

@@ -315,6 +315,7 @@ class Operacion:
     motivo: str
     pdf: str | None = None
     file_id: str | None = None
+    vencido: bool = False  # el PDF de file_id está en VENCIDOS (ceses)
 
 
 def decidir_sync(item: ItemPlan, resultado: ResultadoConsulta | None, hoy: date) -> list[Operacion]:

@@ -22,6 +22,7 @@ from ..drive_sync.client import DriveClient
 from ..drive_sync.folders import ResolverCarpetas
 from ..drive_sync.index import cargar_arbol, construir_indice
 from ..drive_sync.sync import aplicar
+from ..minio_sync.store import crear_almacen
 from ..notifications import enviar_resumen
 from ..reporting import escribir_reporte
 from ..sources.excel_source import expandir_negocios, leer_registros, resolver_excel
@@ -110,6 +111,15 @@ def _consultar(plan: Plan, opciones: Opciones, settings: Settings, run_dir: Path
                 log.warning("Worker %s terminó con código %s", p.name, p.exitcode)
 
 
+def _almacen_o_none(settings: Settings, log: logging.Logger):
+    """MinIO es un espejo: si no conecta, la corrida sigue solo con Drive (y se avisa)."""
+    try:
+        return crear_almacen(settings, log)
+    except Exception as exc:
+        log.error("MinIO no disponible (%s): se continúa solo con Drive; corra --sync-minio después", exc)
+        return None
+
+
 def ejecutar(settings: Settings, opciones: Opciones) -> int:
     run_id, run_dir = _preparar_corrida(settings, opciones.reanudar)
     log = _logger(run_dir)
@@ -172,8 +182,10 @@ def ejecutar(settings: Settings, opciones: Opciones) -> int:
                                   "duplicado anterior", file_id=c.file_id)
                         for c in plan.duplicados if c.fecha_emision]
     resolver = ResolverCarpetas(arbol, client, settings.drive_carpeta_vencidos, crear=opciones.aplicar)
+    almacen = _almacen_o_none(settings, log)
     sync = aplicar(operaciones, client, resolver, opciones.aplicar, log, registro=run_dir / "drive_hechas.txt",
-                   hilos=settings.drive_hilos)
+                   hilos=settings.drive_hilos, almacen=almacen, prefijo_minio=settings.minio_prefix,
+                   registro_minio=run_dir / "minio_hechas.txt")
 
     # 5. Reporte y correo
     reporte = escribir_reporte(run_dir / f"RB_GADSOCarnetSUCAMEC_{run_id}.xlsx", plan, resultados, sync, indice.ignorados)
