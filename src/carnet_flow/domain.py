@@ -303,6 +303,7 @@ class Accion(str, Enum):
     SUBIR_A_VENCIDOS = "SUBIR_A_VENCIDOS"   # PDF nuevo que ya nace vencido
     MOVER_A_VENCIDOS = "MOVER_A_VENCIDOS"   # PDF existente pasa a Vencidos
     ELIMINAR = "ELIMINAR"
+    MOVER_A_CESES = "MOVER_A_CESES"         # cese: a <raíz>/CESES/<dd.mm.aaaa> (se vacía de golpe)
     NINGUNA = "NINGUNA"
 
 
@@ -321,9 +322,9 @@ class Operacion:
 def operaciones_ceses(
     ceses: list[tuple[str, str | None]], activos: IndiceDrive, vencidos: IndiceDrive
 ) -> tuple[list[Operacion], list[tuple[str, str | None]]]:
-    """Cese: se elimina TODO carné del DNI (activo y vencido). Sin negocio aplica a JV y SELVA.
+    """Cese: se retira TODO carné del DNI (activo y vencido) a CESES/. Sin negocio aplica a JV y SELVA.
 
-    Devuelve (operaciones ELIMINAR, ceses sin ningún PDF en Drive).
+    Devuelve (operaciones MOVER_A_CESES, ceses sin ningún PDF en Drive).
     """
     ops: list[Operacion] = []
     sin_pdf: list[tuple[str, str | None]] = []
@@ -337,7 +338,7 @@ def operaciones_ceses(
                     if c.file_id in vistos:
                         continue
                     vistos.add(c.file_id)
-                    ops.append(Operacion(Accion.ELIMINAR, neg, dni, c.fecha_emision, "cese",
+                    ops.append(Operacion(Accion.MOVER_A_CESES, neg, dni, c.fecha_emision, "cese",
                                          file_id=c.file_id, vencido=es_vencido))
         if not encontrado:
             sin_pdf.append((dni, negocio))

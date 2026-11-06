@@ -66,8 +66,9 @@ sucamec/carnets/vencidos/<JV|SELVA>/<aaaa>/<mm>/<dd>/<DNI>_<dd.mm.aaaa>.pdf
 
 ## Ceses
 
-`--solo-ceses` elimina en Drive y MinIO **todos** los carnés (vigentes y vencidos) de los DNIs del Excel de
-ceses, sin abrir SUCAMEC. Excel: `--ceses <ruta>`, `CARNET_CESES_EXCEL` o el más reciente
+`--solo-ceses` retira **todos** los carnés (vigentes y vencidos) de los DNIs del Excel de ceses, sin abrir
+SUCAMEC: en Drive los **mueve** a `CESES/<dd.mm.aaaa>` (con la cuenta de servicio, sin Apps Script; esa carpeta se
+vacía después de golpe) y en MinIO los elimina. Excel: `--ceses <ruta>`, `CARNET_CESES_EXCEL` o el más reciente
 `data/entrada/ceses*.xlsx`, con las mismas columnas que el padrón (plantilla `data/plantillas/ceses_PLANTILLA.xlsx`).
 Una fila sin negocio aplica a los negocios de `--grupo`. Reporte: `RB_GADSOCarnetCeses_<id>.xlsx`.
 
@@ -75,7 +76,7 @@ Una fila sin negocio aplica a los negocios de `--grupo`. Reporte: `RB_GADSOCarne
 run_carnet.bat --sync-minio --grupo JV               :: simulación de la migración/reconciliación
 run_carnet.bat --sync-minio --grupo JV --aplicar     :: escribe en MinIO
 run_carnet.bat --solo-ceses                          :: simulación de ceses
-run_carnet.bat --solo-ceses --aplicar                :: elimina en Drive (papelera) y MinIO (definitivo)
+run_carnet.bat --solo-ceses --aplicar                :: mueve a CESES/ en Drive y elimina en MinIO
 ```
 
 ## Scripts de mantenimiento de Drive

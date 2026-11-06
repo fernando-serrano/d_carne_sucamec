@@ -28,6 +28,6 @@ def replicar(op: Operacion, almacen: AlmacenCarnets, prefijo: str, descargar: Ca
             almacen.eliminar(activa)
         else:  # aún no migrado: se toma de Drive
             almacen.subir(vencida, descargar(op.file_id), meta)
-    elif op.accion is Accion.ELIMINAR:
+    elif op.accion in (Accion.ELIMINAR, Accion.MOVER_A_CESES):  # cese: fuera de GADSO
         almacen.eliminar(vencida if op.vencido else activa)
     return "HECHO"

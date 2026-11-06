@@ -26,12 +26,15 @@ def nombre_dia(negocio: str, fecha: date) -> str:
 
 
 class ResolverCarpetas:
-    def __init__(self, arbol: Arbol, client: DriveClient | None, carpeta_vencidos: str, crear: bool):
+    def __init__(self, arbol: Arbol, client: DriveClient | None, carpeta_vencidos: str, crear: bool,
+                 hoy: date | None = None, carpeta_ceses: str = "CESES"):
         self.arbol = arbol
         self.client = client
         self.carpeta_vencidos = carpeta_vencidos
         self.crear = crear
         self._seq = 0
+        self.hoy = hoy or date.today()
+        self.carpeta_ceses = carpeta_ceses
 
     # ---------------------------------------------------------------- utilidades
     def _hijo(self, parent_id: str, pred) -> Item | None:
@@ -82,6 +85,13 @@ class ResolverCarpetas:
         return self._obtener_o_crear(
             padre_dia, nombre_dia(negocio, fecha), lambda n: parse_fecha_carpeta(n, fecha.year) == fecha
         )
+
+    def carpeta_ceses_del_dia(self) -> str:
+        """<raíz>/CESES/<dd.mm.aaaa>: todo lo retirado ese día, para vaciarlo de golpe."""
+        objetivo = sin_tildes(self.carpeta_ceses).upper()
+        base = self._obtener_o_crear(self.arbol.root_id, self.carpeta_ceses, lambda n: sin_tildes(n).upper() == objetivo)
+        dia = f"{self.hoy:%d.%m.%Y}"
+        return self._obtener_o_crear(base, dia, lambda n: n.strip() == dia)
 
     def ruta_legible(self, folder_id: str) -> str:
         partes: list[str] = []

@@ -101,6 +101,8 @@ def _indexar(arbol: Arbol, pdfs: list[Item], carpeta_vencidos: str, en_vencidos:
         partes = arbol.ruta(pdf)
         if partes is None:
             continue
+        if partes and sin_tildes(partes[0]).upper() == "CESES":
+            continue  # retirados por cese: fuera de todo índice
         if not partes or (sin_tildes(partes[0]).upper() == vencidos) != en_vencidos:
             continue
         if en_vencidos:

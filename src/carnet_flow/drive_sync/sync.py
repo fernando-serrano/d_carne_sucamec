@@ -81,7 +81,10 @@ def aplicar(
             continue
         try:
             carpeta = destino = ""
-            if op.accion is not Accion.ELIMINAR:
+            if op.accion is Accion.MOVER_A_CESES:  # no necesita fecha de emisión
+                carpeta = resolver.carpeta_ceses_del_dia()
+                destino = resolver.ruta_legible(carpeta)
+            elif op.accion is not Accion.ELIMINAR:
                 if op.fecha_emision is None:
                     raise ValueError("operación sin fecha de emisión")
                 vencidos = op.accion in (Accion.MOVER_A_VENCIDOS, Accion.SUBIR_A_VENCIDOS)
@@ -99,7 +102,7 @@ def aplicar(
         if not aplicar_cambios:
             return "SIMULADO"
         try:
-            estado = replicar(op, almacen, prefijo_minio, client.descargar)
+            estado = replicar(op, almacen, prefijo_minio, lambda fid: client.descargar(fid))
         except Exception as exc:  # MinIO nunca tumba Drive
             logger.warning("[MINIO_ERROR] %s %s %s: %s", op.accion.value, op.negocio, op.dni, exc)
             return "MINIO_ERROR"
@@ -113,7 +116,7 @@ def aplicar(
             if aplicar_cambios:
                 if op.accion is Accion.ELIMINAR:
                     client.eliminar(op.file_id)
-                elif op.accion is Accion.MOVER_A_VENCIDOS:
+                elif op.accion in (Accion.MOVER_A_VENCIDOS, Accion.MOVER_A_CESES):  # cuenta de servicio
                     client.mover(op.file_id, carpeta)
                 else:
                     client.subir_pdf(Path(op.pdf), nombre_archivo(op.dni, op.fecha_emision), carpeta, {

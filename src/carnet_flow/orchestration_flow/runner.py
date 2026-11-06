@@ -192,18 +192,16 @@ def ejecutar_ceses(settings: Settings, opciones: Opciones) -> int:
     else:
         log.info("MinIO desactivado: ceses solo en Drive")
 
+    # Los PDFs se MUEVEN a CESES/<dd.mm.aaaa> con la cuenta de servicio (sin Apps Script ni dueño);
+    # esa carpeta se vacía después de golpe.
     client, arbol, activos, vencidos = _cargar_drive(settings, log, run_dir, opciones.negocios)
-    if opciones.aplicar:
-        motivo = client.verificar_escritura(settings.drive_root_id)
-        if motivo:
-            log.error("No se puede eliminar en Drive: %s", motivo)
-            return 3
     operaciones, sin_pdf = operaciones_ceses(ceses, activos, vencidos)
     for dni, negocio in sin_pdf:
         log.info("[CESE] %s (%s): sin carnés en Drive", dni, negocio or "JV/SELVA")
-    log.info("Ceses: %s PDFs a eliminar, %s DNIs sin carné", len(operaciones), len(sin_pdf))
+    log.info("Ceses: %s PDFs a mover a CESES/, %s DNIs sin carné", len(operaciones), len(sin_pdf))
 
-    resolver = ResolverCarpetas(arbol, client, settings.drive_carpeta_vencidos, crear=False)
+    resolver = ResolverCarpetas(arbol, client, settings.drive_carpeta_vencidos, crear=opciones.aplicar,
+                                hoy=hoy_lima())
     sync = aplicar(operaciones, client, resolver, opciones.aplicar, log, registro=run_dir / "drive_hechas.txt",
                    hilos=settings.drive_hilos, almacen=almacen,
                    prefijo_minio=settings.minio_prefix, registro_minio=run_dir / "minio_hechas.txt")
@@ -216,8 +214,10 @@ def ejecutar_ceses(settings: Settings, opciones: Opciones) -> int:
                 resumen[clave] = resumen.get(clave, 0) + 1
     log.info("Resumen: %s", resumen)
     log.info("Reporte: %s", reporte)
-    columnas = [("Ceses en Excel", len(ceses)), ("Sin carné en Drive", len(sin_pdf))] + [
-        c for c in columnas_corrida({}, sync) if c[0] in ("Eliminados", "Errores Drive", "Errores MinIO")]
+    columnas = [("Ceses en Excel", len(ceses)), ("Sin carné en Drive", len(sin_pdf)),
+                ("Movidos a CESES", sum(1 for s in sync if s.operacion.accion is Accion.MOVER_A_CESES
+                                        and s.estado in ("HECHO", "SIMULADO")))] + [
+        c for c in columnas_corrida({}, sync) if c[0] in ("Errores Drive", "Errores MinIO")]
     enviar_resumen(run_id, "CESES DE CARNÉS", ",".join(opciones.negocios), columnas, [reporte],
                    not opciones.aplicar, log)
     return 1 if any(s.estado == "ERROR" or s.minio == "MINIO_ERROR" for s in sync) else 0
