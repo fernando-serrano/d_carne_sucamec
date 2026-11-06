@@ -23,6 +23,24 @@ def _hoja(wb: Workbook, titulo: str, encabezado: list[str], filas: list[list[obj
     ws.freeze_panes = "A2"
 
 
+def escribir_reporte_minio(ruta: Path, resultados, sin_fecha, ignorados: list[tuple[str, str]]) -> Path:
+    """Reporte de --sync-minio: operaciones, carnés sin fecha (no migrados) y no reconocidos."""
+    wb = Workbook()
+    wb.remove(wb.active)
+    resumen = Counter(f"{op.accion}:{estado}" for op, estado in resultados)
+    resumen["SIN_FECHA (no migrados)"] = len(sin_fecha)
+    _hoja(wb, "Resumen", ["Concepto", "Cantidad"], [[k, v] for k, v in sorted(resumen.items())])
+    _hoja(wb, "MinIO", ["Acción", "Estado", "Negocio", "DNI", "Emisión", "Clave"], [
+        [op.accion, estado, op.negocio, op.dni, op.fecha.strftime("%d/%m/%Y") if op.fecha else "", op.clave]
+        for op, estado in resultados
+    ])
+    _hoja(wb, "Sin fecha", ["Negocio", "DNI", "Ruta en Drive"], [[c.negocio, c.dni, c.ruta] for c in sin_fecha])
+    _hoja(wb, "Archivos no reconocidos", ["Ruta", "Nombre"], [list(x) for x in ignorados])
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(ruta)
+    return ruta
+
+
 def escribir_reporte(
     ruta: Path,
     plan: Plan,

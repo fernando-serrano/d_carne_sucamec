@@ -20,11 +20,13 @@ from ..domain import (
 )
 from ..drive_sync.client import DriveClient
 from ..drive_sync.folders import ResolverCarpetas
-from ..drive_sync.index import cargar_arbol, construir_indice
+from ..domain import IndiceDrive
+from ..drive_sync.index import cargar_arbol, construir_indice, construir_indice_vencidos
 from ..drive_sync.sync import aplicar
+from ..minio_sync.reconciliar import aplicar_reconciliacion, filtrar_por_negocio, planificar_reconciliacion
 from ..minio_sync.store import crear_almacen
 from ..notifications import enviar_resumen
-from ..reporting import escribir_reporte
+from ..reporting import escribir_reporte, escribir_reporte_minio
 from ..sources.excel_source import expandir_negocios, leer_registros, resolver_excel
 from . import manifest
 from .worker import worker_main
@@ -118,6 +120,46 @@ def _almacen_o_none(settings: Settings, log: logging.Logger):
     except Exception as exc:
         log.error("MinIO no disponible (%s): se continúa solo con Drive; corra --sync-minio después", exc)
         return None
+
+
+def _filtrar_indice(indice: IndiceDrive, negocios: tuple[str, ...]) -> IndiceDrive:
+    out = IndiceDrive(ignorados=list(indice.ignorados))
+    out.activos = {k: v for k, v in indice.activos.items() if k[0] in negocios}
+    return out
+
+
+def _cargar_drive(settings: Settings, log: logging.Logger, run_dir: Path, negocios: tuple[str, ...]):
+    """Cliente + índices (activo y VENCIDOS) de Drive filtrados por negocio."""
+    client = DriveClient(settings.drive_sa_key, settings.drive_oauth_token, log)
+    log.info("Drive: credencial %s", client.modo)
+    arbol, pdfs = cargar_arbol(client, settings.drive_root_id, cache=run_dir / "drive_listado.json")
+    activos = _filtrar_indice(construir_indice(arbol, pdfs, settings.drive_carpeta_vencidos), negocios)
+    vencidos = _filtrar_indice(construir_indice_vencidos(arbol, pdfs, settings.drive_carpeta_vencidos), negocios)
+    log.info("Drive: %s PDFs activos y %s en VENCIDOS (%s)", activos.total(), vencidos.total(), ",".join(negocios))
+    return client, arbol, activos, vencidos
+
+
+def ejecutar_sync_minio(settings: Settings, opciones: Opciones) -> int:
+    """Reconciliación MinIO <- Drive. La primera vez es la migración inicial."""
+    run_id, run_dir = _preparar_corrida(settings, opciones.reanudar)
+    log = _logger(run_dir)
+    log.info("Corrida %s | sync-minio | negocios=%s | aplicar=%s", run_id, ",".join(opciones.negocios), opciones.aplicar)
+    if not settings.minio_activo:
+        log.error("MinIO desactivado: configure MINIO_ENABLED=1 y credenciales en .env")
+        return 2
+    almacen = crear_almacen(settings, log)
+    client, _, activos, vencidos = _cargar_drive(settings, log, run_dir, opciones.negocios)
+    existentes = filtrar_por_negocio(almacen.listar(settings.minio_prefix.strip("/") + "/"),
+                                     settings.minio_prefix, opciones.negocios)
+    log.info("MinIO: %s objetos existentes bajo %s", len(existentes), settings.minio_prefix)
+    ops, sin_fecha = planificar_reconciliacion(activos, vencidos, existentes, settings.minio_prefix)
+    log.info("Plan MinIO: SUBIR %s / ELIMINAR %s / sin fecha (no se migran) %s",
+             sum(o.accion == "SUBIR" for o in ops), sum(o.accion == "ELIMINAR" for o in ops), len(sin_fecha))
+    resultados = aplicar_reconciliacion(ops, almacen, client.descargar, opciones.aplicar, log, settings.drive_hilos)
+    reporte = escribir_reporte_minio(run_dir / f"RB_GADSOCarnetMinIO_{run_id}.xlsx", resultados, sin_fecha,
+                                     activos.ignorados)
+    log.info("Reporte: %s", reporte)
+    return 1 if any(e == "MINIO_ERROR" for _, e in resultados) else 0
 
 
 def ejecutar(settings: Settings, opciones: Opciones) -> int:
