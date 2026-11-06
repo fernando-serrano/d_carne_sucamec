@@ -318,6 +318,32 @@ class Operacion:
     vencido: bool = False  # el PDF de file_id está en VENCIDOS (ceses)
 
 
+def operaciones_ceses(
+    ceses: list[tuple[str, str | None]], activos: IndiceDrive, vencidos: IndiceDrive
+) -> tuple[list[Operacion], list[tuple[str, str | None]]]:
+    """Cese: se elimina TODO carné del DNI (activo y vencido). Sin negocio aplica a JV y SELVA.
+
+    Devuelve (operaciones ELIMINAR, ceses sin ningún PDF en Drive).
+    """
+    ops: list[Operacion] = []
+    sin_pdf: list[tuple[str, str | None]] = []
+    vistos: set[str] = set()
+    for dni, negocio in ceses:
+        encontrado = False
+        for neg in ([negocio] if negocio else list(NEGOCIOS)):
+            for indice, es_vencido in ((activos, False), (vencidos, True)):
+                for c in indice.activos.get((neg, dni)) or []:
+                    encontrado = True
+                    if c.file_id in vistos:
+                        continue
+                    vistos.add(c.file_id)
+                    ops.append(Operacion(Accion.ELIMINAR, neg, dni, c.fecha_emision, "cese",
+                                         file_id=c.file_id, vencido=es_vencido))
+        if not encontrado:
+            sin_pdf.append((dni, negocio))
+    return ops, sin_pdf
+
+
 def decidir_sync(item: ItemPlan, resultado: ResultadoConsulta | None, hoy: date) -> list[Operacion]:
     """Operaciones de Drive para un DNI consultado (o no) en SUCAMEC."""
     actual = item.actual

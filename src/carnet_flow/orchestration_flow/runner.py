@@ -17,6 +17,7 @@ from ..domain import (
     construir_plan,
     decidir_sync,
     hoy_lima,
+    operaciones_ceses,
 )
 from ..drive_sync.client import DriveClient
 from ..drive_sync.folders import ResolverCarpetas
@@ -37,6 +38,7 @@ class Opciones:
     negocios: tuple[str, ...] = NEGOCIOS
     padron: str = ""
     bajas: str = ""
+    ceses: str = ""
     solo_plan: bool = False
     aplicar: bool = False
     depurar_duplicados: bool = False
@@ -160,6 +162,51 @@ def ejecutar_sync_minio(settings: Settings, opciones: Opciones) -> int:
                                      activos.ignorados)
     log.info("Reporte: %s", reporte)
     return 1 if any(e == "MINIO_ERROR" for _, e in resultados) else 0
+
+
+def ejecutar_ceses(settings: Settings, opciones: Opciones) -> int:
+    """Ceses: elimina en Drive y MinIO todos los carnés (activos y vencidos) de los DNIs del Excel.
+
+    No abre SUCAMEC. Sin --aplicar es simulación.
+    """
+    run_id, run_dir = _preparar_corrida(settings, opciones.reanudar)
+    log = _logger(run_dir)
+    log.info("Corrida %s | ceses | negocios=%s | aplicar=%s", run_id, ",".join(opciones.negocios), opciones.aplicar)
+    ruta = resolver_excel(opciones.ceses or settings.ceses_excel, BASE_DIR / "data" / "entrada", "CESES")
+    if not ruta or not ruta.exists():
+        log.error("Sin Excel de ceses: use --ceses <ruta>, CARNET_CESES_EXCEL o data/entrada/ceses*.xlsx")
+        return 2
+    lectura = leer_registros(ruta)
+    _avisar_lectura(log, "Ceses", lectura)
+    ceses = [(d, n) for d, n in lectura.registros if n is None or n in opciones.negocios]
+    log.info("Ceses %s: %s registros (%s inválidos)", ruta.name, len(ceses), len(lectura.invalidos))
+
+    client, arbol, activos, vencidos = _cargar_drive(settings, log, run_dir, opciones.negocios)
+    if opciones.aplicar:
+        motivo = client.verificar_escritura(settings.drive_root_id)
+        if motivo:
+            log.error("No se puede eliminar en Drive: %s", motivo)
+            return 3
+    operaciones, sin_pdf = operaciones_ceses(ceses, activos, vencidos)
+    for dni, negocio in sin_pdf:
+        log.info("[CESE] %s (%s): sin carnés en Drive", dni, negocio or "JV/SELVA")
+    log.info("Ceses: %s PDFs a eliminar, %s DNIs sin carné", len(operaciones), len(sin_pdf))
+
+    resolver = ResolverCarpetas(arbol, client, settings.drive_carpeta_vencidos, crear=False)
+    sync = aplicar(operaciones, client, resolver, opciones.aplicar, log, registro=run_dir / "drive_hechas.txt",
+                   hilos=settings.drive_hilos, almacen=_almacen_o_none(settings, log),
+                   prefijo_minio=settings.minio_prefix, registro_minio=run_dir / "minio_hechas.txt")
+    reporte = escribir_reporte(run_dir / f"RB_GADSOCarnetCeses_{run_id}.xlsx", Plan([], [], []), {}, sync,
+                               activos.ignorados)
+    resumen: dict[str, int] = {"Ceses sin carné": len(sin_pdf)}
+    for s in sync:
+        for clave in (f"{s.operacion.accion.value} {s.estado}", f"MinIO {s.minio}" if s.minio else ""):
+            if clave:
+                resumen[clave] = resumen.get(clave, 0) + 1
+    log.info("Resumen: %s", resumen)
+    log.info("Reporte: %s", reporte)
+    enviar_resumen(run_id, resumen, reporte, not opciones.aplicar, log)
+    return 1 if any(s.estado == "ERROR" or s.minio == "MINIO_ERROR" for s in sync) else 0
 
 
 def ejecutar(settings: Settings, opciones: Opciones) -> int:

@@ -20,6 +20,9 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--depurar-duplicados", action="store_true", help="Mueve PDFs duplicados anteriores a Vencidos")
     p.add_argument("--omitir-vigentes", action="store_true",
                    help="No consultar DNIs con carné < 3 años en Drive (más rápido; no detecta renovaciones anticipadas)")
+    p.add_argument("--solo-ceses", action="store_true",
+                   help="Elimina en Drive y MinIO todos los carnés de los DNIs del Excel de ceses; no abre SUCAMEC")
+    p.add_argument("--ceses", default="", help="Excel de ceses (por defecto data/entrada/ceses*.xlsx)")
     p.add_argument("--sync-minio", action="store_true",
                    help="Reconcilia MinIO contra Drive (migración inicial); no abre SUCAMEC")
     p.add_argument("--reanudar", default="", help="ID de corrida a retomar (corridas/<id>)")
@@ -60,8 +63,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.solo_login:
         return _solo_login(negocios)
 
-    from .orchestration_flow.runner import Opciones, ejecutar, ejecutar_sync_minio
+    from .orchestration_flow.runner import Opciones, ejecutar, ejecutar_ceses, ejecutar_sync_minio
 
+    if args.solo_ceses:
+        return ejecutar_ceses(load_settings(), Opciones(negocios=negocios, ceses=args.ceses, aplicar=args.aplicar,
+                                                        reanudar=args.reanudar))
     if args.sync_minio:
         return ejecutar_sync_minio(load_settings(), Opciones(negocios=negocios, aplicar=args.aplicar,
                                                              reanudar=args.reanudar))
