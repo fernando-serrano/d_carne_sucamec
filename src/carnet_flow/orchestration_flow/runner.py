@@ -181,6 +181,17 @@ def ejecutar_ceses(settings: Settings, opciones: Opciones) -> int:
     ceses = [(d, n) for d, n in lectura.registros if n is None or n in opciones.negocios]
     log.info("Ceses %s: %s registros (%s inválidos)", ruta.name, len(ceses), len(lectura.invalidos))
 
+    # Un cese no puede dejar copias: si MinIO está activado pero no conecta, no se toca Drive.
+    almacen = None
+    if settings.minio_activo:
+        try:
+            almacen = crear_almacen(settings, log)
+        except Exception as exc:
+            log.error("MinIO activado pero no disponible (%s): ceses abortados sin tocar Drive", exc)
+            return 4
+    else:
+        log.info("MinIO desactivado: ceses solo en Drive")
+
     client, arbol, activos, vencidos = _cargar_drive(settings, log, run_dir, opciones.negocios)
     if opciones.aplicar:
         motivo = client.verificar_escritura(settings.drive_root_id)
@@ -194,7 +205,7 @@ def ejecutar_ceses(settings: Settings, opciones: Opciones) -> int:
 
     resolver = ResolverCarpetas(arbol, client, settings.drive_carpeta_vencidos, crear=False)
     sync = aplicar(operaciones, client, resolver, opciones.aplicar, log, registro=run_dir / "drive_hechas.txt",
-                   hilos=settings.drive_hilos, almacen=_almacen_o_none(settings, log),
+                   hilos=settings.drive_hilos, almacen=almacen,
                    prefijo_minio=settings.minio_prefix, registro_minio=run_dir / "minio_hechas.txt")
     reporte = escribir_reporte(run_dir / f"RB_GADSOCarnetCeses_{run_id}.xlsx", Plan([], [], []), {}, sync,
                                activos.ignorados)
