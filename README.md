@@ -45,6 +45,39 @@ Programador de tareas (ejemplo, diario 06:00):
 schtasks /Create /TN "CARNET-SUCAMEC-GADSO" /SC DAILY /ST 06:00 /TR "\"C:\Users\fserrano\Desktop\BOTS-SUCAMEC\carnet_sucamec_gadso\run_carnet.bat\" --aplicar"
 ```
 
+## MinIO (copia para GADSO)
+
+Drive sigue siendo la base: MinIO solo guarda una copia para que GADSO la consulte y nunca se usa para decidir.
+Se activa con `MINIO_ENABLED=1` y las credenciales en `.env` (ver `.env.example`). Con `MINIO_ENABLED=0` el bot
+funciona exactamente igual que antes.
+
+Rutas (bucket `mga-gadso`):
+
+```
+sucamec/carnets/<JV|SELVA>/<aaaa>/<mm>/<dd>/<DNI>_<dd.mm.aaaa>.pdf
+sucamec/carnets/vencidos/<JV|SELVA>/<aaaa>/<mm>/<dd>/<DNI>_<dd.mm.aaaa>.pdf
+```
+
+- En cada corrida, toda operación aplicada en Drive (subir, pasar a vencidos, eliminar) se replica en MinIO.
+  Si MinIO falla, Drive sigue y el reporte marca `MINIO_ERROR` en la columna `MinIO`.
+- `--sync-minio` deja MinIO igual a Drive (activos + VENCIDOS): la primera vez es la migración inicial;
+  después repara diferencias. Nunca toca nada fuera de `sucamec/carnets/`. Los PDFs sin fecha legible en Drive
+  no se migran y salen en el reporte `RB_GADSOCarnetMinIO_<id>.xlsx`. Conviene sanear Drive antes.
+
+## Ceses
+
+`--solo-ceses` elimina en Drive y MinIO **todos** los carnés (vigentes y vencidos) de los DNIs del Excel de
+ceses, sin abrir SUCAMEC. Excel: `--ceses <ruta>`, `CARNET_CESES_EXCEL` o el más reciente
+`data/entrada/ceses*.xlsx`, con las mismas columnas que el padrón (plantilla `data/plantillas/ceses_PLANTILLA.xlsx`).
+Una fila sin negocio aplica a los negocios de `--grupo`. Reporte: `RB_GADSOCarnetCeses_<id>.xlsx`.
+
+```bat
+run_carnet.bat --sync-minio --grupo JV               :: simulación de la migración/reconciliación
+run_carnet.bat --sync-minio --grupo JV --aplicar     :: escribe en MinIO
+run_carnet.bat --solo-ceses                          :: simulación de ceses
+run_carnet.bat --solo-ceses --aplicar                :: elimina en Drive (papelera) y MinIO (definitivo)
+```
+
 ## Pruebas
 
 ```powershell
