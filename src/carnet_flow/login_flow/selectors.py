@@ -16,9 +16,8 @@ LOGIN_SELECTORS = {
 }
 
 SUCCESS_SELECTORS = [
-    "#j_idt11\\:menuPrincipal",
-    "#j_idt11\\:menuprincipal",
-    "#j_idt11\\:j_idt18",
+    '[id$=":menuPrincipal"]',
+    '[id$=":menuprincipal"]',
     "form#gestionCitasForm",
 ]
 
@@ -32,7 +31,7 @@ ERROR_SELECTORS = [
 ]
 
 MENU_SELECTORS = {
-    "menu_root": "#j_idt11\\:menuPrincipal, #j_idt11\\:menuprincipal",
+    "menu_root": '[id$=":menuPrincipal"], [id$=":menuprincipal"]',
     "consultas_button": 'button:has-text("Consultas"), a:has-text("Consultas"), span:has-text("Consultas")',
     "mis_vigilantes": 'a:has-text("Mis vigilantes"), span:has-text("Mis vigilantes")',
 }

@@ -2,7 +2,7 @@
 # Los j_idt de PrimeFaces cambian entre despliegues: se prioriza id estable o texto visible.
 
 MENU = {
-    "menu_root": "#j_idt11\\:menuPrincipal, #j_idt11\\:menuprincipal",
+    "menu_root": '[id$=":menuPrincipal"], [id$=":menuprincipal"]',
 }
 
 TEXTO_DSSP = "DSSP"
